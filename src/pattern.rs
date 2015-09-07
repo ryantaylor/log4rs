@@ -24,6 +24,7 @@ use std::io::Write;
 
 use log::{LogRecord, LogLevel};
 use time;
+use term;
 
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq))]
@@ -154,16 +155,38 @@ impl PatternLayout {
             file: record.location().file(),
             line: record.location().line(),
         };
-        self.append_inner(w, record.level(), record.target(), &location, record.args())
+        self.append_inner(w, false, record.level(), record.target(), &location, record.args())
+    }
+
+    pub fn append_console<W>(&self, w: &mut W, record: &LogRecord) -> io::Result<()> where W: Write {
+        let location = Location {
+            module_path: record.location().module_path(),
+            file: record.location().file(),
+            line: record.location().line(),
+        };
+        self.append_inner(w, true, record.level(), record.target(), &location, record.args())
     }
 
     fn append_inner<W>(&self,
                        w: &mut W,
+                       console: bool,
                        level: LogLevel,
                        target: &str,
                        location: &Location,
                        args: &fmt::Arguments)
                        -> io::Result<()> where W: Write {
+        if console {
+            let mut w = term::stdout().unwrap();
+
+            match level {
+                LogLevel::Error => w.fg(term::color::RED).unwrap(),
+                LogLevel::Warn => w.fg(term::color::YELLOW).unwrap(),
+                LogLevel::Info => w.fg(term::color::BLUE).unwrap(),
+                LogLevel::Debug => w.fg(term::color::GREEN).unwrap(),
+                LogLevel::Trace => w.reset().unwrap(),
+            };
+        }
+
         for chunk in self.pattern.iter() {
             try!(match *chunk {
                 Chunk::Text(ref text) => write!(w, "{}", text),
@@ -182,6 +205,10 @@ impl PatternLayout {
                 }
                 Chunk::Target => write!(w, "{}", target),
             });
+        }
+        if console {
+            let mut w = term::stdout().unwrap();
+            w.reset().unwrap();
         }
         writeln!(w, "")
     }
